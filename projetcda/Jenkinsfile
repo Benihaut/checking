@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+    stages {
+        stage('Clonage du projet') {
+            steps {
+                git branch: 'main', url:'https://github.com/Benihaut/VM.git'
+            }
+        }
+        stage('Installation des dépendances') {
+            steps {
+                sh 'docker-compose run --rm php composer install'
+            }
+        }
+        stage('Lancement des tests unitaires') {
+            steps {
+                sh 'docker-compose run --rm php ./bin/phpunit'
+            }
+        }
+        stage('Analyse avec SonarQube') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh "docker run --rm -e SONAR_HOST_URL=\${SONAR_HOST_URL} -v \${WORKSPACE}:/usr/src sonarsource/sonar-scanner-cli -Dsonar.projectKey=projetcda"
+                }
+            }
+        }
+        stage('Construction de l\'image Docker') {
+            steps {
+                sh 'docker build -t u91tuqm/projetcda-php:latest .'
+            }
+        }
+        stage('Hébergement de l\'image Docker') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                    sh 'docker push u91tuqm/projetcda-php:latest'
+                }
+            }
+        }
+        stage('Mise à jour des conteneurs') {
+            steps {
+                sh 'docker-compose pull'
+                sh 'docker-compose up -d'
+            }
+        }
+    }
+    post {
+        always {
+            sh 'docker logout'
+        }
+    }
+}
+
